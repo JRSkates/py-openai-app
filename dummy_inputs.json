@@ -1,0 +1,12 @@
+[
+  { "input": "Official Trailer: The Last Starfighter (4K HDR)", "expected": "Cinema" },
+  { "input": "Premier League Match Highlights: Arsenal vs City", "expected": "Sport" },
+  { "input": "Neon Tokyo Walk — 8K HDR Dolby Vision Demo", "expected": "Vivid" },
+  { "input": "Lo-fi beats to relax/study to", "expected": "Standard" },
+  { "input": "https://www.youtube.com/watch?v=abcdef12345", "expected": "Standard" },
+  { "input": "Live Concert: Imagine Dragons - Believer (Official Music Video)", "expected": "Music" },
+  { "input": "Epic Gameplay Montage: Best Moments from Cyberpunk 2077", "expected": "Gaming" },
+  { "input": "https://youtu.be/xyz98765432", "expected": "Standard" },
+  { "input": "4K HDR Nature Documentary: The Beauty of the Amazon Rainforest", "expected": "Vivid" },
+  { "input": "Champions League Final Highlights: Real Madrid vs Liverpool", "expected": "Sport" }
+]
