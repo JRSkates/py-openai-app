@@ -17,7 +17,7 @@ app = Flask(__name__)
 # Initialize classifier once at startup
 classifier = ViewingModeClassifier(
     api_key=os.getenv("OPENAI_API_KEY"),
-    model="gpt-5-mini",
+    model="gpt-4.1-mini",
 )
 
 

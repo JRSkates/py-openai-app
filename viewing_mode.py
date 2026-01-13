@@ -201,6 +201,7 @@ def fetch_youtube_oembed(url: str, timeout_s: float = 2.0) -> Optional[dict]:
     try:
         r = requests.get(endpoint, params={"url": url, "format": "json"}, timeout=timeout_s)
         r.raise_for_status()
+        print(f"Debug: Fetched oEmbed data: {r.json()}")
         return r.json()
     except Exception:
         return None
@@ -212,10 +213,12 @@ def build_classification_text(input_text: str) -> str:
     (title + channel). Otherwise return the raw normalized input.
     """
     text = _normalize_input(input_text)
+    print(f"Debug: Normalized input text: {text}")
     if not text:
         return ""
 
     if _looks_like_youtube_url(text):
+        print("Debug: Detected YouTube URL, fetching oEmbed metadata.")
         meta = fetch_youtube_oembed(text)
         if meta and meta.get("title"):
             title = meta.get("title", "")
@@ -236,20 +239,23 @@ class ViewingModeClassifier:
         # Use oEmbed metadata when a URL is provided
         text_for_model = build_classification_text(youtube_title_or_url)
         if not text_for_model:
+            print("Warning: Empty input after normalization, defaulting to Standard mode.")
             return "Standard"
 
         try:
-            resp = self.client.responses.create(
+            resp = self.client.chat.completions.create(
                 model=self.model,
-                temperature=0,
-                max_output_tokens=16,
-                input=[
+                temperature=1,
+                max_completion_tokens=100,
+                messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": text_for_model},
                 ],
             )
-            return _validate_mode(resp.output_text)
-        except Exception:
+            print(f"Debug: OpenAI response: {resp}")
+            return _validate_mode(resp.choices[0].message.content or "Standard")
+        except Exception as e:
+            print(f"Warning: OpenAI API call failed: {e}, using heuristic fallback.")
             return _heuristic_fallback(text_for_model)
 
 
