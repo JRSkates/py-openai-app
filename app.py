@@ -24,13 +24,13 @@ classifier = ViewingModeClassifier(
 @app.route("/classify", methods=["POST"])
 def classify():
     """
-    Classify viewing mode from YouTube URL or title.
+    Classify viewing settings from YouTube URL or title.
     
     Accepts:
     - POST with JSON body: {"input": "YouTube URL or title"}
     
     Returns:
-    - JSON: {"viewing_mode": "Cinema", "input": "..."}
+    - JSON: {"picture_mode": "Movie", "audio_profile": "Movie", "input": "..."}
     """
     try:
         data = request.get_json()
@@ -40,10 +40,11 @@ def classify():
                 "example": {"input": "Thor Will Return | Avengers"}
             }), 400
         input_text = data["input"]
-        viewing_mode = classifier.classify(input_text)
+        settings = classifier.classify(input_text)
         
         return jsonify({
-            "viewing_mode": viewing_mode,
+            "picture_mode": settings["picture_mode"],
+            "audio_profile": settings["audio_profile"],
             "input": input_text
         }), 200
         
@@ -64,13 +65,21 @@ def health():
 def index():
     """API documentation endpoint."""
     return jsonify({
-        "name": "Viewing Mode Classifier API",
-        "version": "1.0",
+        "name": "Viewing Settings Classifier API",
+        "version": "2.0",
+        "description": "Classifies content into picture_mode and audio_profile settings",
+        "picture_modes": ["Movie", "Sports", "Graphics", "Entertainment", "Dynamic", "Dynamic2", "Expert"],
+        "audio_profiles": ["Movie", "Sport", "Music", "Entertainment", "Auto"],
         "endpoints": {
             "/classify": {
                 "methods": ["POST"],
-                "description": "Classify YouTube content into viewing modes",
+                "description": "Classify YouTube content into picture and audio settings",
                 "post_example": {
+                    "input": "Thor Will Return | Avengers: Doomsday in Theaters"
+                },
+                "response_example": {
+                    "picture_mode": "Movie",
+                    "audio_profile": "Movie",
                     "input": "Thor Will Return | Avengers: Doomsday in Theaters"
                 }
             },

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from viewing_mode import ViewingModeClassifier
 
 def main():
-    """Command-line interface for viewing mode classification."""
+    """Command-line interface for viewing settings classification."""
     if len(sys.argv) != 2:
         print("Usage: cli.py <youtube-title-or-url>", file=sys.stderr)
         sys.exit(1)
@@ -20,14 +20,15 @@ def main():
 
     clf = ViewingModeClassifier(
         api_key=os.getenv("OPENAI_API_KEY"),
-        model="gpt-5-mini",
+        model="gpt-4.1-mini",
     )
 
     input_text = sys.argv[1]
-    mode = clf.classify(input_text)
+    settings = clf.classify(input_text)
 
-    # entire program output
-    print(mode)
+    # Print both settings
+    print(f"Picture Mode: {settings['picture_mode']}")
+    print(f"Audio Profile: {settings['audio_profile']}")
 
 if __name__ == "__main__":
     main()

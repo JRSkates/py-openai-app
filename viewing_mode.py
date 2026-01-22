@@ -1,74 +1,95 @@
 import os
 import re
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import Literal, Optional, TypedDict
 
 import requests
 from openai import OpenAI
 
-ViewingMode = Literal["Cinema", "Sport", "Vivid", "Music", "Gaming","Standard"]
-ALLOWED: set[str] = {"Cinema", "Sport", "Vivid", "Music", "Gaming", "Standard"}
+PictureMode = Literal["Entertainment", "Dynamic", "Expert", "Movie", "Sports", "Graphics", "Dynamic2"]
+AudioProfile = Literal["Music", "Movie", "Sport", "Auto", "Entertainment"]
 
-SYSTEM_PROMPT = """You are an expert at classifying YouTube videos or TV content into the optimal TV picture mode.
+ALLOWED_PICTURE_MODES: set[str] = {"Entertainment", "Dynamic", "Expert", "Movie", "Sports", "Graphics", "Dynamic2"}
+ALLOWED_AUDIO_PROFILES: set[str] = {"Music", "Movie", "Sport", "Auto", "Entertainment"}
 
-Analyze the input text and classify it into EXACTLY ONE of these modes:
-Cinema, Sport, Vivid, Music, Gaming, Standard
+class ViewingSettings(TypedDict):
+    picture_mode: PictureMode
+    audio_profile: AudioProfile
 
-Classification Rules (in order of priority):
+SYSTEM_PROMPT = """You are an expert at classifying YouTube videos or TV content to determine optimal TV settings.
 
-CINEMA - Movies, TV shows, cinematic content:
-• Keywords: trailer, movie, film, cinematic, IMAX, scene, clip, episode, series, season, netflix, hbo, disney+
-• Locations: theater, theatre, cinema, "in theaters", "now showing"
-• TV Shows: Look for patterns like "S##E##" (S05E16), "Season #", show titles with episode numbers
-• Indicators: release dates, film titles, director names, actor names, "official trailer", "original series"
-• Franchises: Marvel, DC, Star Wars, Disney, Pixar, Universal, Warner Bros
-• TV Series: Breaking Bad, Stranger Things, Game of Thrones, The Office, Friends, etc.
-• Examples: "Avengers: Doomsday in Theaters", "Dune Part 3 Official Trailer", "Breaking Bad S5E16", "Stranger Things S4"
+Analyze the input text and return TWO settings in JSON format:
+1. picture_mode: The optimal picture/display mode
+2. audio_profile: The optimal audio profile
 
-SPORT - Live sports, highlights, matches:
-• Sports: football, soccer, basketball, baseball, tennis, golf, racing, boxing, MMA, cricket, rugby
-• Leagues: NBA, NFL, MLB, NHL, Premier League, Champions League, UCL, La Liga, Serie A, F1
-• Keywords: highlights, match, game, vs, goal, touchdown, home run, knockout, race, lap, tournament
-• Examples: "Lakers vs Warriors Highlights", "Premier League Goals", "F1 Monaco Grand Prix"
+PICTURE MODES (choose ONE):
+• Movie - Movies, films, TV shows, cinematic content, trailers
+  - Keywords: movie, film, trailer, cinema, IMAX, theater, series, episode, netflix, hbo
+  - TV patterns: S##E##, Season #
+  - Examples: "Avengers in Theaters", "Breaking Bad S5E16", "Official Trailer"
 
-GAMING - Video games, gameplay, streaming:
-• Keywords: gameplay, gaming, let's play, walkthrough, speedrun, stream, playthrough
-• Guides: boss guide, game tutorial, build guide, tips and tricks (for games), game guide
-• Platforms: PS5, Xbox, PC gaming, Nintendo Switch, Steam Deck
-• Game titles: Fortnite, Minecraft, GTA, Call of Duty, FIFA, Valorant, League of Legends, Elden Ring, Zelda, Pokemon, CS2, Counter-Strike, Cyberpunk
-• Esports: tournament, championship, competitive, esports, pro player
-• Examples: "Elden Ring Boss Guide", "Fortnite Victory Royale", "CS2 Tournament Finals", "Minecraft Let's Play"
+• Sports - Live sports, highlights, matches
+  - Keywords: highlights, match, game, vs, goal, tournament, race
+  - Leagues: NBA, NFL, Premier League, UCL, F1, UFC
+  - Examples: "Lakers vs Warriors", "Champions League Final"
 
-MUSIC - Music videos, concerts, performances:
-• Keywords: official music video, lyric video, lyrics, audio, official audio, MV, live performance, official video
-• Content: song, album, single, track, concert, tour, festival, acoustic, cover, symphony, orchestra
-• Venues: Coachella, Glastonbury, Lollapalooza, Madison Square Garden, concert hall
-• Patterns: "Artist - Song Title", "(Official Video)", "(Lyrics)", "(Acoustic)", "- Topic", "Full Set"
-• Examples: "Taylor Swift - Cardigan (Official Video)", "Coachella 2024 Full Set", "Beethoven Symphony No. 9", "Drake - God's Plan (Official Video)"
+• Graphics - Video games, gameplay, streaming
+  - Keywords: gameplay, gaming, let's play, walkthrough, speedrun, esports
+  - Games: Fortnite, Minecraft, GTA, Call of Duty, Elden Ring, CS2
+  - Examples: "Boss Guide", "Gameplay Walkthrough"
 
-VIVID - High-quality demos, colorful content, nature:
-• Technical: HDR, 4K, 8K, Dolby Vision, Ultra HD, HDR10+, demo, test, showcase
-• Visual: colorful, colourful, vibrant, neon, rainbow, stunning visuals, eye candy, beautiful
-• Nature: aurora, northern lights, wildlife, landscape, timelapse, slow motion, macro, coral reef, nature scenes
-• Special: fireworks, ASMR with vibrant colors, satisfying videos
-• Patterns: "8K Nature", "4K Wildlife", "Aurora Borealis", technical specs + nature
-• Examples: "8K HDR Dolby Vision Nature Demo", "Neon City Lights 4K", "Northern Lights Aurora Borealis 4K", "Colorful Paint Mixing"
+• Entertainment - Music videos, concerts, general entertainment
+  - Keywords: music video, concert, live performance, lyrics, official video
+  - Patterns: "Artist - Song", festival, acoustic, cover
+  - Examples: "Taylor Swift (Official Video)", "Coachella Full Set"
 
-STANDARD - Everything else:
-• News, talk shows, interviews, podcasts, vlogs, tutorials, reviews, documentaries
-• Educational content, how-to videos, cooking, DIY, unboxing
-• Anything that doesn't clearly fit the above categories
+• Dynamic - High-quality demos, colorful content (vivid/bright)
+  - Keywords: HDR, 4K, 8K, Dolby Vision, demo, colorful, vibrant, neon
+  - Examples: "8K HDR Demo", "Neon City Lights 4K"
 
-Priority Rules:
-1. If multiple categories could apply, choose the PRIMARY content type
-2. Gaming content with HDR/4K → Gaming (gameplay takes priority over technical quality)
-3. Gaming footage in a review → Gaming (not Standard)
-4. Movie clips/trailers → Cinema (even if in a review/reaction)
-5. Concert documentary → Music (not Cinema)
-6. Sports documentary → Sport (not Cinema)
-7. When uncertain → Standard
+• Dynamic2 - Extra vivid content, extreme brightness/color
+  - Keywords: ultra HDR, HDR10+, extreme colors, stunning visuals
+  - Nature: aurora, northern lights, coral reef (when 8K/HDR)
+  - Examples: "Northern Lights 8K HDR", "Ultra Vivid Demo"
 
-Output: Reply with ONLY ONE WORD (Cinema, Sport, Vivid, Music, Gaming, or Standard). No explanation, no punctuation, no extra text."""
+• Expert - Custom/technical content, reviews, tutorials, standard content
+  - Keywords: review, tutorial, how-to, unboxing, podcast, interview, news
+  - Examples: "iPhone Review", "Python Tutorial", "Tech News"
+
+AUDIO PROFILES (choose ONE):
+• Movie - Cinematic audio for films and TV shows
+  - Use when picture_mode is Movie
+  - Movie trailers, series, cinematic content
+
+• Sport - Sports audio enhancement
+  - Use when picture_mode is Sports
+  - Live sports, match highlights, tournaments
+
+• Music - Music-optimized audio
+  - Use when picture_mode is Entertainment AND content is music-related
+  - Music videos, concerts, live performances
+
+• Entertainment - General entertainment audio
+  - Use when picture_mode is Entertainment, Graphics, or Expert
+  - Gaming, reviews, tutorials, vlogs
+
+• Auto - Automatic audio detection
+  - Use when picture_mode is Dynamic or Dynamic2
+  - HDR demos, nature content, technical showcases
+
+DECISION RULES:
+1. Movie content → picture_mode: Movie, audio_profile: Movie
+2. Sports content → picture_mode: Sports, audio_profile: Sport
+3. Music videos/concerts → picture_mode: Entertainment, audio_profile: Music
+4. Gaming content → picture_mode: Graphics, audio_profile: Entertainment
+5. HDR/4K demos → picture_mode: Dynamic/Dynamic2, audio_profile: Auto
+6. Reviews/tutorials → picture_mode: Expert, audio_profile: Entertainment
+7. Gaming with HDR → picture_mode: Graphics (gameplay priority)
+
+Output format: Reply with ONLY valid JSON in this exact format:
+{"picture_mode": "Movie", "audio_profile": "Movie"}
+
+No explanation, no extra text, just the JSON object."""
 
 def _normalize_input(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
@@ -77,37 +98,62 @@ def _looks_like_youtube_url(text: str) -> bool:
     t = text.strip().lower()
     return ("youtube.com/" in t) or ("youtu.be/" in t)
 
-def _validate_mode(mode: str) -> ViewingMode:
-    cleaned = " ".join(mode.strip().split())
+def _validate_settings(response: str) -> ViewingSettings:
+    """Parse and validate the JSON response from the API."""
+    import json
+    
+    try:
+        data = json.loads(response.strip())
+        picture_mode = data.get("picture_mode", "")
+        audio_profile = data.get("audio_profile", "")
+        
+        # Validate picture mode
+        if picture_mode not in ALLOWED_PICTURE_MODES:
+            # Try case-insensitive match
+            for mode in ALLOWED_PICTURE_MODES:
+                if mode.lower() == picture_mode.lower():
+                    picture_mode = mode
+                    break
+            else:
+                picture_mode = "Expert"  # Default fallback
+        
+        # Validate audio profile
+        if audio_profile not in ALLOWED_AUDIO_PROFILES:
+            # Try case-insensitive match
+            for profile in ALLOWED_AUDIO_PROFILES:
+                if profile.lower() == audio_profile.lower():
+                    audio_profile = profile
+                    break
+            else:
+                audio_profile = "Auto"  # Default fallback
+        
+        return ViewingSettings(
+            picture_mode=picture_mode,  # type: ignore
+            audio_profile=audio_profile  # type: ignore
+        )
+    except (json.JSONDecodeError, KeyError, AttributeError):
+        # If parsing fails, return default
+        return ViewingSettings(picture_mode="Expert", audio_profile="Auto")
 
-    if cleaned in ALLOWED:
-        return cleaned  
-
-    # Try case-insensitive match
-    for m in ("Cinema", "Sport", "Vivid", "Music", "Gaming", "Standard"):
-        if m.lower() in cleaned.lower():
-            return m  
-
-    return "Standard"
-
-def _heuristic_fallback(text: str) -> ViewingMode:
+def _heuristic_fallback(text: str) -> ViewingSettings:
     """
     Enhanced keyword-based fallback with weighted scoring.
-    Returns the mode with the highest confidence score.
+    Returns both picture_mode and audio_profile based on content analysis.
     """
     t = text.lower()
     
-    # Score each category (higher = more confident)
+    # Score each category
     scores = {
-        "Gaming": 0,
-        "Music": 0,
-        "Sport": 0,
-        "Cinema": 0,
-        "Vivid": 0,
-        "Standard": 0
+        "Movie": 0,      # Picture mode
+        "Sports": 0,
+        "Graphics": 0,
+        "Entertainment": 0,
+        "Dynamic": 0,
+        "Dynamic2": 0,
+        "Expert": 0
     }
 
-    # Gaming
+    # Gaming (Graphics picture mode)
     gaming_strong = ["gameplay", "let's play", "lets play", "walkthrough", "speedrun", 
                      "playthrough", "esports", "gaming channel", "boss guide", "game guide"]
     gaming_weak = ["gaming", "gamer", "stream", "twitch", "ps5", "xbox", "nintendo"]
@@ -115,30 +161,29 @@ def _heuristic_fallback(text: str) -> ViewingMode:
                      "league of legends", "fifa", "elden ring", "zelda", "pokemon", "cs2", 
                      "counter-strike", "spider-man"]
     
-    scores["Gaming"] += sum(2 for k in gaming_strong if k in t)
-    scores["Gaming"] += sum(1 for k in gaming_weak if k in t)
-    scores["Gaming"] += sum(2 for k in gaming_titles if k in t)
+    scores["Graphics"] += sum(2 for k in gaming_strong if k in t)
+    scores["Graphics"] += sum(1 for k in gaming_weak if k in t)
+    scores["Graphics"] += sum(2 for k in gaming_titles if k in t)
     
-    # Specific game detection
     if "cyberpunk 2077" in t or "cyberpunk2077" in t:
-        scores["Gaming"] += 2
+        scores["Graphics"] += 2
     
     if any(k in t for k in ["gameplay", "playthrough", "let's play", "walkthrough"]):
-        scores["Gaming"] += 2
+        scores["Graphics"] += 2
 
-    # Music 
+    # Music (Entertainment picture mode with Music audio)
     music_strong = ["official music video", "official video", "official audio", "lyric video",
                     "live concert", "music video", "full album", "full set", "(lyrics)", "(acoustic)"]
     music_weak = ["music", "song", "audio", "mv", "concert", "live performance", "acoustic",
                   "cover", "remix", "dj set", "festival", "tour", "symphony", "orchestra"]
     
     if " - " in t and any(k in t for k in ["official", "lyrics", "audio", "video", "acoustic"]):
-        scores["Music"] += 2
+        scores["Entertainment"] += 2
     
-    scores["Music"] += sum(3 for k in music_strong if k in t)
-    scores["Music"] += sum(1 for k in music_weak if k in t)
+    scores["Entertainment"] += sum(3 for k in music_strong if k in t)
+    scores["Entertainment"] += sum(1 for k in music_weak if k in t)
 
-    # Sport 
+    # Sport (Sports picture mode)
     sport_strong = ["highlights", "full match", "extended highlights", "vs ", " vs.", 
                     "match highlights", "goal", "touchdown"]
     sport_leagues = ["premier league", "nba", "nfl", "mlb", "nhl", "ucl", "champions league",
@@ -146,11 +191,11 @@ def _heuristic_fallback(text: str) -> ViewingMode:
     sport_weak = ["match", "game", "race", "boxing", "mma", "tennis", "football", "soccer",
                   "basketball", "baseball"]
     
-    scores["Sport"] += sum(3 for k in sport_strong if k in t)
-    scores["Sport"] += sum(2 for k in sport_leagues if k in t)
-    scores["Sport"] += sum(1 for k in sport_weak if k in t)
+    scores["Sports"] += sum(3 for k in sport_strong if k in t)
+    scores["Sports"] += sum(2 for k in sport_leagues if k in t)
+    scores["Sports"] += sum(1 for k in sport_weak if k in t)
 
-    # Cinema
+    # Cinema (Movie picture mode)
     cinema_strong = ["official trailer", "official teaser", "in theaters", "in theatres",
                      "now playing", "coming soon", "imax", "original series"]
     cinema_medium = ["trailer", "teaser", "movie", "film", "cinema", "theater", "theatre",
@@ -159,36 +204,66 @@ def _heuristic_fallback(text: str) -> ViewingMode:
                       "netflix", "hbo", "prime video", "apple tv+"]
     cinema_indicators = ["will return", "part 2", "part 3", "s0", "s1", "s2", "s3", "s4", "s5"]
     
-    # Check for TV series pattern
     if re.search(r's\d+e\d+', t):
-        scores["Cinema"] += 3
+        scores["Movie"] += 3
     
-    scores["Cinema"] += sum(3 for k in cinema_strong if k in t)
-    scores["Cinema"] += sum(2 for k in cinema_medium if k in t)
-    scores["Cinema"] += sum(2 for k in cinema_studios if k in t)
-    scores["Cinema"] += sum(1 for k in cinema_indicators if k in t)
+    scores["Movie"] += sum(3 for k in cinema_strong if k in t)
+    scores["Movie"] += sum(2 for k in cinema_medium if k in t)
+    scores["Movie"] += sum(2 for k in cinema_studios if k in t)
+    scores["Movie"] += sum(1 for k in cinema_indicators if k in t)
 
-    # Vivid
-    vivid_strong = ["4k hdr", "8k", "dolby vision", "hdr10", "ultra hd", "hdr demo"]
+    # Vivid (Dynamic/Dynamic2 picture modes)
+    vivid_strong = ["4k hdr", "8k", "dolby vision", "hdr10", "ultra hd", "hdr demo", "hdr10+"]
     vivid_nature = ["aurora", "northern lights", "aurora borealis", "4k wildlife", "8k nature",
                     "coral reef", "nature scenes", "timelapse"]
     vivid_weak = ["hdr", "4k", "colorful", "colourful", "vibrant", "neon",
                   "satisfying", "asmr", "wildlife", "landscape"]
     
-    scores["Vivid"] += sum(3 for k in vivid_strong if k in t)
-    scores["Vivid"] += sum(2 for k in vivid_nature if k in t)
-    scores["Vivid"] += sum(1 for k in vivid_weak if k in t)
-
-    # Get the highest scoring category
-    max_score = max(scores.values())
+    # Check for extra vivid indicators
+    extra_vivid = ["ultra hdr", "hdr10+", "8k hdr", "extreme colors", "stunning visuals"]
+    if any(k in t for k in extra_vivid):
+        scores["Dynamic2"] += 4
+    else:
+        scores["Dynamic"] += sum(3 for k in vivid_strong if k in t)
     
-    # Only return non-Standard if confidence is high enough (score >= 2)
+    scores["Dynamic"] += sum(2 for k in vivid_nature if k in t)
+    scores["Dynamic"] += sum(1 for k in vivid_weak if k in t)
+    scores["Dynamic2"] += sum(1 for k in vivid_weak if k in t)
+
+    # Determine picture mode
+    max_score = max(scores.values())
+    picture_mode = "Expert"  # Default
+    
     if max_score >= 2:
         for mode, score in scores.items():
-            if score == max_score and mode != "Standard":
-                return mode  # type: ignore
+            if score == max_score:
+                picture_mode = mode
+                break
     
-    return "Standard"
+    # Determine audio profile based on picture mode
+    audio_profile = "Auto"
+    
+    if picture_mode == "Movie":
+        audio_profile = "Movie"
+    elif picture_mode == "Sports":
+        audio_profile = "Sport"
+    elif picture_mode == "Entertainment":
+        # Check if music-related
+        if any(k in t for k in music_strong + music_weak):
+            audio_profile = "Music"
+        else:
+            audio_profile = "Entertainment"
+    elif picture_mode == "Graphics":
+        audio_profile = "Entertainment"
+    elif picture_mode in ["Dynamic", "Dynamic2"]:
+        audio_profile = "Auto"
+    else:  # Expert
+        audio_profile = "Entertainment"
+    
+    return ViewingSettings(
+        picture_mode=picture_mode,  # type: ignore
+        audio_profile=audio_profile  # type: ignore
+    )
 
 @lru_cache(maxsize=512)
 def fetch_youtube_oembed(url: str, timeout_s: float = 2.0) -> Optional[dict]:
@@ -235,30 +310,41 @@ class ViewingModeClassifier:
         self.model = model
 
     @lru_cache(maxsize=512)
-    def classify(self, youtube_title_or_url: str) -> ViewingMode:
-        # Use oEmbed metadata when a URL is provided
+    def classify(self, youtube_title_or_url: str) -> ViewingSettings:
+        """
+        Classify content with dual-layer validation.
+        Returns both picture_mode and audio_profile.
+        """
         text_for_model = build_classification_text(youtube_title_or_url)
         if not text_for_model:
-            print("Warning: Empty input after normalization, defaulting to Standard mode.")
-            return "Standard"
+            print("Warning: Empty input after normalization, defaulting to Expert/Auto.")
+            return ViewingSettings(picture_mode="Expert", audio_profile="Auto")
+
+        # Get heuristic prediction as fallback
+        heuristic_settings = _heuristic_fallback(text_for_model)
 
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
-                temperature=1,
+                temperature=1,  # gpt-5-mini only supports temperature=1
                 max_completion_tokens=100,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": text_for_model},
                 ],
             )
-            print(f"Debug: OpenAI response: {resp}")
-            return _validate_mode(resp.choices[0].message.content or "Standard")
+            print(f"Debug: OpenAI response: {resp.choices[0].message.content}")
+            
+            api_settings = _validate_settings(resp.choices[0].message.content or "")
+            
+            # Trust API result
+            return api_settings
+            
         except Exception as e:
             print(f"Warning: OpenAI API call failed: {e}, using heuristic fallback.")
-            return _heuristic_fallback(text_for_model)
+            return heuristic_settings
 
 
-def classify_viewing_mode(youtube_title_or_url: str) -> ViewingMode:
+def classify_viewing_mode(youtube_title_or_url: str) -> ViewingSettings:
     """Convenience function."""
     return ViewingModeClassifier().classify(youtube_title_or_url)
