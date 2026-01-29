@@ -7,10 +7,10 @@ import requests
 from openai import OpenAI
 
 PictureMode = Literal["Entertainment", "Dynamic", "Expert", "Movie", "Sports", "Graphics", "Dynamic2"]
-AudioProfile = Literal["Music", "Movie", "Sport", "Auto", "Entertainment"]
+AudioProfile = Literal["Music", "Movie", "Sports", "Auto", "Entertainment"]
 
 ALLOWED_PICTURE_MODES: set[str] = {"Entertainment", "Dynamic", "Expert", "Movie", "Sports", "Graphics", "Dynamic2"}
-ALLOWED_AUDIO_PROFILES: set[str] = {"Music", "Movie", "Sport", "Auto", "Entertainment"}
+ALLOWED_AUDIO_PROFILES: set[str] = {"Music", "Movie", "Sports", "Auto", "Entertainment"}
 
 class ViewingSettings(TypedDict):
     picture_mode: PictureMode
@@ -61,7 +61,7 @@ AUDIO PROFILES (choose ONE):
   - Use when picture_mode is Movie
   - Movie trailers, series, cinematic content
 
-• Sport - Sports audio enhancement
+• Sports - Sports audio enhancement
   - Use when picture_mode is Sports
   - Live sports, match highlights, tournaments
 
@@ -73,9 +73,6 @@ AUDIO PROFILES (choose ONE):
   - Use when picture_mode is Entertainment, Graphics, or Expert
   - Gaming, reviews, tutorials, vlogs
 
-• Auto - Automatic audio detection
-  - Use when picture_mode is Dynamic or Dynamic2
-  - HDR demos, nature content, technical showcases
 
 DECISION RULES:
 1. Movie content → picture_mode: Movie, audio_profile: Movie
@@ -279,6 +276,7 @@ def fetch_youtube_oembed(url: str, timeout_s: float = 2.0) -> Optional[dict]:
         print(f"Debug: Fetched oEmbed data: {r.json()}")
         return r.json()
     except Exception:
+        print(f"Warning: Failed to fetch oEmbed for URL: {url}")
         return None
 
 
@@ -326,7 +324,7 @@ class ViewingModeClassifier:
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
-                temperature=1,  # gpt-5-mini only supports temperature=1
+                temperature=1,
                 max_completion_tokens=100,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},

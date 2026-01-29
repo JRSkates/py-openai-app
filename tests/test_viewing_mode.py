@@ -7,44 +7,89 @@ warnings.filterwarnings(
 
 import json
 import os
+import sys
 import pytest
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from viewing_mode import (
     _heuristic_fallback,
-    _validate_mode,
-    ViewingModeClassifier,
+    _validate_settings,
     build_classification_text,
+    ViewingModeClassifier,
+    ALLOWED_PICTURE_MODES,
+    ALLOWED_AUDIO_PROFILES,
 )
 
 ALLOWED_MODES = {"Cinema", "Sport", "Vivid", "Music", "Gaming", "Standard"}
 
 
-def test_validate_mode_only_allows_known_modes():
-    assert _validate_mode("Cinema") == "Cinema"
-    assert _validate_mode("Sport") == "Sport"
-    assert _validate_mode("Vivid") == "Vivid"
-    assert _validate_mode("Music") == "Music"
-    assert _validate_mode("Gaming") == "Gaming"
-    assert _validate_mode("Standard") == "Standard"
+def test_validate_settings_only_allows_known_modes():
+    """Test that _validate_settings correctly parses JSON strings and validates modes"""
+    assert _validate_settings('{"picture_mode": "Movie", "audio_profile": "Movie"}') == {
+        "picture_mode": "Movie",
+        "audio_profile": "Movie",
+    }
+    assert _validate_settings('{"picture_mode": "Sports", "audio_profile": "Sports"}') == {
+        "picture_mode": "Sports",
+        "audio_profile": "Sports",
+    }
+    assert _validate_settings('{"picture_mode": "Entertainment", "audio_profile": "Entertainment"}') == {
+        "picture_mode": "Entertainment",
+        "audio_profile": "Entertainment",
+    }
+    assert _validate_settings('{"picture_mode": "Entertainment", "audio_profile": "Music"}') == {
+        "picture_mode": "Entertainment",
+        "audio_profile": "Music",
+    }
+    assert _validate_settings('{"picture_mode": "Graphics", "audio_profile": "Entertainment"}') == {
+        "picture_mode": "Graphics",
+        "audio_profile": "Entertainment",
+    }
+    assert _validate_settings('{"picture_mode": "Dynamic", "audio_profile": "Auto"}') == {
+        "picture_mode": "Dynamic",
+        "audio_profile": "Auto",
+    }
 
-    # trims whitespace
-    assert _validate_mode(" Cinema ") == "Cinema"
+    # invalid JSON => defaults to Expert/Auto
+    assert _validate_settings('not valid json') == {
+        "picture_mode": "Expert",
+        "audio_profile": "Auto",
+    }
 
-    # invalid => Standard
-    assert _validate_mode("SomethingElse") == "Standard"
-
-    # recovers embedded valid word
-    assert _validate_mode("Mode: Gaming") == "Gaming"
-    assert _validate_mode("Gaming.") == "Gaming"
+    # invalid modes => defaults
+    result = _validate_settings('{"picture_mode": "Unknown", "audio_profile": "Unknown"}')
+    assert result["picture_mode"] in ALLOWED_PICTURE_MODES
+    assert result["audio_profile"] in ALLOWED_AUDIO_PROFILES
+    
 
 
 def test_heuristic_fallback_basic():
-    assert _heuristic_fallback("Official Trailer - New Movie") == "Cinema"
-    assert _heuristic_fallback("Premier League match highlights") == "Sport"
-    assert _heuristic_fallback("8K HDR Dolby Vision demo") == "Vivid"
-    assert _heuristic_fallback("Live concert performance") == "Music"
-    assert _heuristic_fallback("Epic gameplay walkthrough") == "Gaming"
-    assert _heuristic_fallback("Some random text") == "Standard"
+    assert _heuristic_fallback("Official Trailer - New Movie") == {
+        "picture_mode": "Movie",
+        "audio_profile": "Movie",
+    }
+    assert _heuristic_fallback("Premier League match highlights") == {
+        "picture_mode": "Sports",
+        "audio_profile": "Sport",
+    }
+    assert _heuristic_fallback("8K HDR Dolby Vision demo") == {
+        "picture_mode": "Dynamic2",
+        "audio_profile": "Auto",
+    }
+    assert _heuristic_fallback("Live concert performance") == {
+        "picture_mode": "Entertainment",
+        "audio_profile": "Music",
+    }
+    assert _heuristic_fallback("Epic gameplay walkthrough") == {
+        "picture_mode": "Graphics",
+        "audio_profile": "Entertainment",
+    }
+    assert _heuristic_fallback("Some random text") == {
+        "picture_mode": "Expert",
+        "audio_profile": "Entertainment",
+    }
 
 
 def test_dummy_json_can_be_loaded():
@@ -70,8 +115,6 @@ def test_classifier_uses_oembed_text_for_urls(monkeypatch):
     """
     Proves classify() uses TITLE/CHANNEL (oEmbed output) rather than the raw URL.
     """
-    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4.1-mini")
-
     monkeypatch.setattr(
         "viewing_mode.fetch_youtube_oembed",
         lambda url, timeout_s=2.0: {"title": "GTA V | Let's Play", "author_name": "LetsPlay"},
@@ -79,22 +122,33 @@ def test_classifier_uses_oembed_text_for_urls(monkeypatch):
 
     captured = {}
 
+    class FakeMessage:
+        content = '{"picture_mode": "Graphics", "audio_profile": "Entertainment"}'
+
+    class FakeChoice:
+        message = FakeMessage()
+
     class FakeResp:
-        output_text = "Gaming"
+        choices = [FakeChoice()]
 
     def fake_create(*args, **kwargs):
-        captured["input"] = kwargs["input"]
+        captured["messages"] = kwargs.get("messages", [])
         return FakeResp()
 
-    monkeypatch.setattr(clf.client.responses, "create", fake_create)
+    # Create classifier and patch AFTER initialization
+    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4o-mini")
+    monkeypatch.setattr(clf.client.chat.completions, "create", fake_create)
 
     mode = clf.classify("https://youtu.be/abcdef")
-    assert mode == "Gaming"
+    assert mode == {'audio_profile': 'Entertainment', 'picture_mode': 'Graphics'}
 
-    # input is a list of messages: [system, user]
-    user_msg = captured["input"][1]["content"]
+    # Verify that oEmbed data was used in the messages
+    assert len(captured["messages"]) == 2
+    user_msg = captured["messages"][1]["content"]
     assert "TITLE:" in user_msg
+    assert "GTA V" in user_msg
     assert "CHANNEL:" in user_msg
+    assert "LetsPlay" in user_msg
     assert "youtu.be" not in user_msg  # should not be the raw URL
 
 
@@ -102,58 +156,72 @@ def test_classifier_offline_with_mocked_openai(monkeypatch):
     """
     Offline unit test: mock OpenAI so tests are stable and don't use the network.
     """
-    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4.1-mini")
+    class FakeMessage:
+        content = '{"picture_mode": "Sports", "audio_profile": "Sports"}'
+
+    class FakeChoice:
+        message = FakeMessage()
 
     class FakeResp:
-        output_text = "Sport"
+        choices = [FakeChoice()]
 
     def fake_create(*args, **kwargs):
         return FakeResp()
 
-    monkeypatch.setattr(clf.client.responses, "create", fake_create)
+    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4o-mini")
+    monkeypatch.setattr(clf.client.chat.completions, "create", fake_create)
 
-    assert clf.classify("Some title") == "Sport"
+    result = clf.classify("Some title")
+    assert result == {'picture_mode': 'Sports', 'audio_profile': 'Sports'}
 
 
 def test_classifier_falls_back_when_openai_errors(monkeypatch):
     """
     If OpenAI call fails, classifier should return heuristic result.
     """
-    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4.1-mini")
-
     def boom(*args, **kwargs):
         raise RuntimeError("API down")
 
-    monkeypatch.setattr(clf.client.responses, "create", boom)
+    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4o-mini")
+    monkeypatch.setattr(clf.client.chat.completions, "create", boom)
 
     # heuristic should identify gaming keywords
-    assert clf.classify("GTA V let's play episode 1") == "Gaming"
+    result = clf.classify("GTA V let's play episode 1")
+    assert result == {'picture_mode': 'Graphics', 'audio_profile': 'Entertainment'}
 
 
 def test_classifier_empty_input_returns_standard():
     clf = ViewingModeClassifier(api_key="test-key", model="gpt-4.1-mini")
-    assert clf.classify("") == "Standard"
-    assert clf.classify("   ") == "Standard"
+    assert clf.classify("") == {'audio_profile': 'Auto', 'picture_mode': 'Expert'}
+    assert clf.classify("   ") == {'audio_profile': 'Auto', 'picture_mode': 'Expert'}
 
 
 def test_classifier_caches_results(monkeypatch):
     """
     Same input twice should call OpenAI once due to @lru_cache.
     """
-    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4.1-mini")
     calls = {"n": 0}
 
+    class FakeMessage:
+        content = '{"picture_mode": "Sports", "audio_profile": "Sports"}'
+
+    class FakeChoice:
+        message = FakeMessage()
+
     class FakeResp:
-        output_text = "Sport"
+        choices = [FakeChoice()]
 
     def fake_create(*args, **kwargs):
         calls["n"] += 1
         return FakeResp()
 
-    monkeypatch.setattr(clf.client.responses, "create", fake_create)
+    clf = ViewingModeClassifier(api_key="test-key", model="gpt-4o-mini")
+    monkeypatch.setattr(clf.client.chat.completions, "create", fake_create)
 
-    assert clf.classify("Chelsea Highlights") == "Sport"
-    assert clf.classify("Chelsea Highlights") == "Sport"
+    result1 = clf.classify("Chelsea Highlights")
+    result2 = clf.classify("Chelsea Highlights")
+    assert result1 == {'picture_mode': 'Sports', 'audio_profile': 'Sports'}
+    assert result2 == {'picture_mode': 'Sports', 'audio_profile': 'Sports'}
     assert calls["n"] == 1
 
 
@@ -161,8 +229,13 @@ def test_classifier_caches_results(monkeypatch):
 def test_classifier_live_api_smoke():
     """
     Optional integration test (runs only if OPENAI_API_KEY is set).
-    Avoid strict expectations — just ensure it's one of the allowed strings.
+    Verify the classifier returns valid picture_mode and audio_profile.
     """
-    clf = ViewingModeClassifier(model="gpt-4.1-mini")
-    mode = clf.classify("Official Trailer: Epic Space Movie (4K)")
-    assert mode in ALLOWED_MODES
+    clf = ViewingModeClassifier(model="gpt-4o-mini")
+    result = clf.classify("Official Trailer: Epic Space Movie (4K)")
+    
+    assert isinstance(result, dict)
+    assert "picture_mode" in result
+    assert "audio_profile" in result
+    assert result["picture_mode"] in ALLOWED_PICTURE_MODES
+    assert result["audio_profile"] in ALLOWED_AUDIO_PROFILES
