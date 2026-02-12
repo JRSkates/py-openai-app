@@ -88,7 +88,7 @@ Output format: Reply with ONLY valid JSON in this exact format:
 
 No explanation, no extra text, just the JSON object."""
 
-def _normalize_input(text: str) -> str:
+def _normalise_input(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 def _looks_like_youtube_url(text: str) -> bool:
@@ -285,7 +285,7 @@ def build_classification_text(input_text: str) -> str:
     If input is a YouTube URL and oEmbed succeeds, return a short metadata string
     (title + channel). Otherwise return the raw normalized input.
     """
-    text = _normalize_input(input_text)
+    text = _normalise_input(input_text)
     print(f"Debug: Normalized input text: {text}")
     if not text:
         return ""
