@@ -1,6 +1,6 @@
 # YouTube TV Settings Classifier
 
-A Python-based classifier that determines optimal **TV viewing settings** (picture mode and audio profile) based on YouTube video titles or URLs. The application analyzes content and returns appropriate TV settings for the best viewing experience.
+A Python-based classifier that determines optimal **TV viewing settings** (picture mode and audio profile) based on YouTube video titles or URLs. The application analyses content and returns appropriate TV settings for the best viewing experience.
 
 The system:
 

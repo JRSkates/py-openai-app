@@ -14,7 +14,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Initialize classifier once at startup
+# Initialise classifier once
 classifier = ViewingModeClassifier(
     api_key=os.getenv("OPENAI_API_KEY"),
     model="gpt-4.1-mini",

@@ -104,7 +104,7 @@ def _validate_settings(response: str) -> ViewingSettings:
         picture_mode = data.get("picture_mode", "")
         audio_profile = data.get("audio_profile", "")
         
-        # Validate picture mode
+        # picture mode
         if picture_mode not in ALLOWED_PICTURE_MODES:
             # Try case-insensitive match
             for mode in ALLOWED_PICTURE_MODES:
@@ -114,15 +114,15 @@ def _validate_settings(response: str) -> ViewingSettings:
             else:
                 picture_mode = "Expert"  # Default fallback
         
-        # Validate audio profile
+        # audio profile
         if audio_profile not in ALLOWED_AUDIO_PROFILES:
-            # Try case-insensitive match
+            # case-insensitive match
             for profile in ALLOWED_AUDIO_PROFILES:
                 if profile.lower() == audio_profile.lower():
                     audio_profile = profile
                     break
             else:
-                audio_profile = "Auto"  # Default fallback
+                audio_profile = "Auto"  # Default
         
         return ViewingSettings(
             picture_mode=picture_mode,  # type: ignore
